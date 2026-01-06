@@ -1,0 +1,12 @@
+This is the visual result of your previous DSL output.
+Evaluate the layout, alignment, and visibility.
+
+CRITERIA FOR 'is_final':
+- No major overlaps between text and lines.
+- No elements being cut off by the window edges.
+- The visual hierarchy is clear and represents the requested logic.
+- PRAGMATISM: If the layout is 90% perfect and usable, set 'is_final': true. Small coordinate imperfections are acceptable.
+
+IF NOT PERFECT:
+- Provide a corrected version.
+- Explain the visual flaw in 'rejection_reason' (e.g., "The line at y=500 cuts through the central box").

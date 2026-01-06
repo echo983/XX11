@@ -1,0 +1,3 @@
+Return the next render JSON based on the context.
+User input or event will follow.
+Focus on visual structure and clarity.

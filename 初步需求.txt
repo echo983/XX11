@@ -1,303 +1,82 @@
-
 ---
 
 # X11 GUI Bridge for LLM
 
-## 需求规格 V0.1（可实现版）
+## 需求规格 V0.2（视觉反馈迭代版）
 
 ---
 
-## 1. 项目目标（重新收敛）
+## 1. 项目目标
 
-构建一个 **Windows 原生 Rust Daemon**，通过 **X11 协议**（连接 VcXsrv），让 GPT-5.2 以**绘图原语 DSL**的形式驱动图形界面显示，并通过鼠标点击事件与用户形成交互闭环。
-
-**核心思想**：
-
-> LLM = 状态机 + 决策
-> Daemon = 图形系统 + 输入系统 + 会话调度器
+构建一个 Windows 原生 Rust Daemon，通过 X11 协议驱动 GPT-5.2 生成图形化逻辑表达。
+**V0.2 核心增强**：引入“视觉反馈环 (Visual Feedback Loop)”，通过草稿截图回传，实现 LLM 自我纠错与布局优化。
 
 ---
 
-## 2. 运行与环境假设（已冻结）
+## 2. 运行环境
 
-* OS：Windows（原生 Rust 程序）
-* X Server：VcXsrv
-
-  * `DISPLAY=127.0.0.1:0.0`
-  * 不启用 access control
-* LLM：**仅 GPT-5.2**
-
-  * 远程 API 调用
-  * JSON-only 输出（由 prompt 强约束）
+* OS：Windows
+* X Server：VcXsrv (127.0.0.1:0.0)
+* LLM 架构：
+  - **Generator**: gpt-5.2 (负责初始设计与逻辑架构)
+  - **Critic**: gpt-5-mini-2025-08-07 (负责视觉校审与坐标微调)
 
 ---
 
-## 3. 总体架构（冻结）
+## 3. 总体架构
 
 ```
-+-------------------+
-|   GPT-5.2 API     |
-+---------^---------+
-          |
-      DSL(JSON)
-          |
-+---------+---------+
-|  Orchestrator     |
-|  (Daemon Core)    |
-+----+---------+----+
-     |         |
-     |         |
- DSL |         | X11 Events
-     |         |
-+----v----+  +-v-------------+
-| DSL     |  | X11 Backend   |
-| Compiler|  | (x11rb)       |
-+---------+  +---------------+
-```
-
-Daemon 是 **唯一状态持有者**（UI 状态、事件节流、绘制状态）。
-
----
-
-## 4. 明确的 Non-Goals（V0.1 不做）
-
-以下内容 **明确不实现**，避免 scope creep：
-
-* ❌ 文本输入组件（TextInput）
-* ❌ 键盘输入回传给 LLM
-* ❌ 剪贴板（X11 Selection / Windows Clipboard）
-* ❌ 安全、鉴权、沙箱
-* ❌ 局部重绘优化（允许全量 Clear + 重画）
-* ❌ 多窗口（只有一个主窗口）
-
----
-
-## 5. DSL 设计（AGD/0.1）——贴近 X11 原语
-
-### 5.1 总体设计原则（很重要）
-
-* **绘图原语优先**：DSL ≈ X11 request 的抽象
-* **无隐式布局引擎**：坐标和尺寸由 LLM 明确给出
-* **Daemon 负责 hit-test**
-* **组件只是逻辑约定，不是 UI 框架**
-
----
-
-### 5.2 DSL 顶层 Envelope（硬约束）
-
-```json
-{
-  "version": "AGD/0.1",
-  "type": "render",
-  "seq": 12,
-  "window": {
-    "width": 800,
-    "height": 600,
-    "title": "LLM GUI"
-  },
-  "commands": []
-}
-```
-
-#### 字段说明
-
-| 字段       | 含义                     |
-| -------- | ---------------------- |
-| version  | 固定为 `"AGD/0.1"`        |
-| type     | `"render"`（V0.1 只支持这个） |
-| seq      | 单调递增，用于同步              |
-| window   | 窗口元信息                  |
-| commands | 绘制 + 交互命令列表            |
-
----
-
-### 5.3 绘图原语 Commands（V0.1 子集）
-
-#### 1️⃣ 清屏（推荐每帧第一条）
-
-```json
-{
-  "cmd": "clear",
-  "color": "#ffffff"
-}
-```
-
-→ `ClearArea + ChangeGC`
-
----
-
-#### 2️⃣ 绘制矩形（Rect / Button 基础）
-
-```json
-{
-  "cmd": "rect",
-  "id": "btn_ok",
-  "x": 100,
-  "y": 200,
-  "w": 120,
-  "h": 40,
-  "fill": "#e0e0e0",
-  "stroke": "#000000",
-  "stroke_width": 1,
-  "clickable": true
-}
-```
-
-* `id`：**必须唯一**（用于 hit-test）
-* `clickable=true` ⇒ Daemon 注册点击区域
-
----
-
-#### 3️⃣ 绘制文本
-
-```json
-{
-  "cmd": "text",
-  "x": 130,
-  "y": 225,
-  "text": "OK",
-  "color": "#000000"
-}
-```
-
-* 使用 X11 core font（`ImageText8`）
-* 不做自动换行 / 排版
-
----
-
-#### 4️⃣ 绘制线条（可选）
-
-```json
-{
-  "cmd": "line",
-  "x1": 50,
-  "y1": 50,
-  "x2": 200,
-  "y2": 50,
-  "color": "#000000",
-  "width": 1
-}
++-------------------+       +-----------------------+
+|   GPT-5.2 (Gen)   | <---> | GPT-5-Mini (Critic)   |
++---------^---------+       +-----------^-----------+
+          |                             |
+      DSL(JSON) <---------------->  JPG Draft
+          |                             |
++---------+-----------------------------+-----------+
+|                Orchestrator                       |
+|  (Session Manager & Iteration Controller)         |
++----+-------------------+---------------------+-----+
+     |                   |                     |
+ DSL |                   | Image Buffer        | X11 Events
+     |                   |                     |
++----v----+      +-------v-------+      +------v------+
+| DSL     |      | Off-screen    |      | X11 Backend |
+| Parser  |      | Renderer      |      | (x11rb)     |
++---------+      +---------------+      +-------------+
 ```
 
 ---
 
-### 5.4 Button 的**约定而非组件**
+## 4. 视觉反馈环逻辑 (The Loop)
 
-V0.1 中 **没有 Button 组件**，只有：
-
-* 一个 `rect(clickable=true)`
-* 若干 `text`
-* `id` 即按钮标识
-
-视觉状态（hover/pressed）：
-
-* **不由 LLM 管**
-* Daemon 在本地改颜色后触发 **重新 render**
+为了解决坐标计算不准和布局重叠，系统执行以下循环（最多 4 次）：
+1. **生成**：LLM 输出第一版 DSL JSON。
+2. **离屏渲染**：Daemon 将 DSL 渲染为内存位图并编码为低分辨率 JPG。
+3. **视觉校审**：将 JPG 与代码发给 Critic 模型。
+4. **决策**：
+   - 若发现问题 -> Critic 输出 `rejection_reason` 与修正后的完整 JSON -> 回到步骤 2。
+   - 若完美 -> Critic 标记 `is_final: true` -> 最终渲染至用户 X11 窗口。
 
 ---
 
-## 6. 事件 DSL（X11 → LLM）
+## 5. DSL 指令集 (AGD/0.1)
 
-### 6.1 事件统一格式
+### 5.1 框架约束 (Structured Outputs)
+所有输出必须符合定义的 JSON Schema，严禁自然语言污染。
 
-```json
-{
-  "version": "AGD/0.1",
-  "type": "event",
-  "seq": 13,
-  "event": {
-    "kind": "click",
-    "target_id": "btn_ok",
-    "x": 145,
-    "y": 220
-  }
-}
-```
-
-### 6.2 V0.1 只允许一种事件
-
-| kind  | 说明                             |
-| ----- | ------------------------------ |
-| click | ButtonPress + ButtonRelease 命中 |
-
-* MouseMove、Expose、Resize **不回调 LLM**
-* 点击事件节流、防抖由 Daemon 控制
+### 5.2 绘图原语
+- **clear**: `{"cmd": "clear", "color": "#RRGGBB"}`
+- **rect**: `{"cmd": "rect", "id": "...", "x", "y", "w", "h", "fill", "stroke", "stroke_width", "clickable"}`
+- **text**: `{"cmd": "text", "x", "y", "text", "color", "bg"}`
+  - *注：若 text 在 rect 内，"bg" 必须设为 rect 颜色以实现视觉透明。*
+- **line**: `{"cmd": "line", "x1", "y1", "x2", "y2", "color", "width"}`
 
 ---
 
-## 7. Daemon 职责（冻结边界）
+## 6. 交互规范
 
-### 7.1 Daemon **必须做**
-
-* 维护当前 frame 的 **可点击区域表**
-* X11 → DSL event 转换
-* 事件循环
-* 调用 GPT-5.2
-* 校验 JSON 合法性
-* 非法输出 → 丢弃 + 重试（可限制次数）
-
-### 7.2 Daemon **禁止做**
-
-* 不生成 UI 决策
-* 不解释文本语义
-* 不做布局推断
-* 不合成多帧 diff（V0.1 全量 render）
-
----
-
-## 8. Orchestrator 会话循环（确定版）
-
-```
-1. 启动 Daemon
-2. 创建 X11 Window
-3. 调用 GPT-5.2（initial system prompt）
-4. 得到 render DSL
-5. 清屏 + 绘制
-6. 等待 X11 事件
-7. 若 click 命中：
-   - 构造 event DSL
-   - 调用 GPT-5.2
-   - 得到新的 render DSL
-   - 回到 5
-```
-
-> **LLM 永远认为自己在“重画整个世界”**
-
----
-
-## 9. Prompt 约束（工程级）
-
-Daemon 内部 hardcode system prompt（摘要）：
-
-* 你只能输出合法 JSON
-* 只允许使用 AGD/0.1
-* 不得输出自然语言
-* 所有点击区域必须有 `id`
-* 每次输出必须包含 `clear`
-* 不得假设任何客户端状态，除 event 明示内容
-
-（下一步我可以给你 **完整 system prompt + 示例 I/O**）
-
----
-
-## 10. Rust 工程建议结构（可直接生成）
-
-```
-src/
- ├─ main.rs
- ├─ orchestrator.rs
- ├─ llm/
- │   └─ gpt52.rs
- ├─ dsl/
- │   ├─ model.rs
- │   ├─ parser.rs
- │   └─ validator.rs
- ├─ x11/
- │   ├─ backend.rs
- │   ├─ renderer.rs
- │   └─ events.rs
- └─ state/
-     └─ hit_test.rs
-```
+- **延迟反馈**：本地 Daemon 不对 UI 进行语义解释。
+- **DEBUG 存档**：开启 `AGD_DEBUG=1` 后，记录每一轮迭代的图、理由和 Token 消耗。
+- **缓存敏感**：利用 Prompt Caching，通过固定指令前缀加速迭代。
 
 ---

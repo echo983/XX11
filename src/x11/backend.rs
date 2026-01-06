@@ -150,7 +150,7 @@ fn query_depth_and_bpp(conn: &RustConnection, depth: u8) -> (u8, u8) {
     (depth, bpp)
 }
 
-fn load_fonts() -> (Option<Font>, Option<Font>) {
+pub fn load_fonts() -> (Option<Font>, Option<Font>) {
     let primary_candidates = vec![
         std::env::var("X11_GUI_FONT").ok(),
         Some("C:\\Windows\\Fonts\\msyh.ttc".to_string()),
