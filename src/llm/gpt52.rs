@@ -62,7 +62,7 @@ pub fn request_render(
 
     let mut payload_map = serde_json::Map::new();
     payload_map.insert("model".to_string(), json!(model_name));
-    payload_map.insert("prompt_cache_key".to_string(), json!(format!("agd_v0.1_{}", model_name.replace('.', "_").replace('-', "_"))));
+    payload_map.insert("prompt_cache_key".to_string(), json!(format!("agd_v0.2_{}", model_name.replace('.', "_").replace('-', "_"))));
     
     // 仅为 gpt-5.2 开启 24h 缓存保留
     if model_name == "gpt-5.2" {
@@ -157,10 +157,19 @@ pub fn request_render(
 }
 
 fn get_condensed_schema(mode: &LLMMode) -> Value {
+    let xdsl_schema = json!({
+        "type": "object",
+        "properties": {
+            "version": { "type": "string", "const": "X-DSL/0.2" }
+        },
+        "required": ["version"],
+        "additionalProperties": false
+    });
+
     let render_envelope_schema = json!({
         "type": "object",
         "properties": {
-            "version": { "type": "string", "const": "AGD/0.1" },
+            "version": { "type": "string", "const": "AGD/0.2" },
             "type": { "type": "string", "const": "render" },
             "seq": { "type": "integer" },
             "window": {
@@ -178,16 +187,50 @@ fn get_condensed_schema(mode: &LLMMode) -> Value {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "cmd": { "type": "string", "enum": ["clear", "rect", "text", "line"] },
+                        "cmd": { "type": "string", "enum": ["clear", "rect", "text", "line", "circle", "ellipse", "round_rect", "arc", "polyline", "polygon", "image", "path"] },
                         "id": { "type": ["string", "null"] },
                         "x": { "type": ["integer", "null"] },
                         "y": { "type": ["integer", "null"] },
                         "w": { "type": ["integer", "null"] },
                         "h": { "type": ["integer", "null"] },
+                        "cx": { "type": ["integer", "null"] },
+                        "cy": { "type": ["integer", "null"] },
+                        "r": { "type": ["integer", "null"] },
+                        "rx": { "type": ["integer", "null"] },
+                        "ry": { "type": ["integer", "null"] },
+                        "start_angle": { "type": ["number", "null"] },
+                        "end_angle": { "type": ["number", "null"] },
                         "x1": { "type": ["integer", "null"] },
                         "y1": { "type": ["integer", "null"] },
                         "x2": { "type": ["integer", "null"] },
                         "y2": { "type": ["integer", "null"] },
+                        "points": {
+                            "type": ["array", "null"],
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "x": { "type": "integer" },
+                                    "y": { "type": "integer" }
+                                },
+                                "required": ["x", "y"],
+                                "additionalProperties": false
+                            }
+                        },
+                        "segments": {
+                            "type": ["array", "null"],
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "cmd": { "type": "string", "enum": ["M", "L", "Z"] },
+                                    "x": { "type": ["integer", "null"] },
+                                    "y": { "type": ["integer", "null"] }
+                                },
+                                "required": ["cmd", "x", "y"],
+                                "additionalProperties": false
+                            }
+                        },
+                        "src_type": { "type": ["string", "null"], "enum": ["path", "base64", null] },
+                        "src": { "type": ["string", "null"] },
                         "text": { "type": ["string", "null"] },
                         "color": { "type": ["string", "null"] },
                         "bg": { "type": ["string", "null"] },
@@ -195,18 +238,25 @@ fn get_condensed_schema(mode: &LLMMode) -> Value {
                         "stroke": { "type": ["string", "null"] },
                         "stroke_width": { "type": ["integer", "null"] },
                         "width": { "type": ["integer", "null"] },
-                        "clickable": { "type": ["boolean", "null"] }
+                        "clickable": { "type": "boolean" }
                     },
                     "required": [
-                        "cmd", "id", "x", "y", "w", "h", "x1", "y1", "x2", "y2", 
-                        "text", "color", "bg", "fill", "stroke", "stroke_width", 
-                        "width", "clickable"
+                        "cmd", "id", "x", "y", "w", "h", "cx", "cy", "r", "rx", "ry",
+                        "start_angle", "end_angle", "x1", "y1", "x2", "y2",
+                        "points", "segments", "src_type", "src", "text", "color", "bg",
+                        "fill", "stroke", "stroke_width", "width", "clickable"
                     ],
                     "additionalProperties": false
                 }
+            },
+            "xdsl": {
+                "anyOf": [
+                    xdsl_schema,
+                    { "type": "null" }
+                ]
             }
         },
-        "required": ["version", "type", "seq", "window", "commands"],
+        "required": ["version", "type", "seq", "window", "commands", "xdsl"],
         "additionalProperties": false
     });
 

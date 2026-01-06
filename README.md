@@ -33,9 +33,12 @@ cargo run
 $env:AGD_DEBUG="1"; cargo run
 ```
 
-## DSL 规范 (AGD/0.1)
+## DSL 规范 (AGD/0.2)
 详细规范见 `初步需求.txt` 与 `prompts/system.txt`。
 - **clear**: 清屏。
 - **rect**: 矩形/按钮。
 - **text**: 标签化文本 (24px)。
 - **line**: 逻辑连接线。
+- **circle / ellipse / round_rect / arc**
+- **polyline / polygon / path**
+- **image**

@@ -10,3 +10,5 @@ CRITERIA FOR 'is_final':
 IF NOT PERFECT:
 - Provide a corrected version.
 - Explain the visual flaw in 'rejection_reason' (e.g., "The line at y=500 cuts through the central box").
+Ensure "xdsl" exists in the render JSON; set it to null or {"version": "X-DSL/0.2"}.
+When fixing layouts, you may use AGD/0.2 primitives as needed.

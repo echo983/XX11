@@ -1,3 +1,5 @@
 Return the next render JSON based on the context.
 User input or event will follow.
 Focus on visual structure and clarity.
+Include "xdsl" in the same JSON; set it to null or {"version": "X-DSL/0.2"}.
+Use AGD/0.2 primitives when helpful (circle/ellipse/round_rect/arc/polyline/polygon/image/path).

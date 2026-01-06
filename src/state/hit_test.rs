@@ -37,4 +37,17 @@ impl HitTestIndex {
         }
         None
     }
+
+    pub fn hit_target(&self, x: i32, y: i32) -> Option<&HitTarget> {
+        for item in &self.items {
+            if x >= item.x
+                && y >= item.y
+                && x < item.x + item.w as i32
+                && y < item.y + item.h as i32
+            {
+                return Some(item);
+            }
+        }
+        None
+    }
 }

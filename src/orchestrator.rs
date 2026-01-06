@@ -35,6 +35,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     
     let mut last_render_seq = parsed.seq;
     let mut event_seq = 0u64;
+    let mut current_render = parsed.clone();
     
     let x11 = backend::X11Backend::connect(
         parsed.window.width as u16,
@@ -64,15 +65,18 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             let next_dsl = gpt52::request_render(None, Some(text.as_str()), LLMMode::Generate)?;
             let parsed = iterate_to_final(&next_dsl, None, Some(text.as_str()), primary.as_ref(), emoji.as_ref(), is_debug)?;
             update_ui(&x11, &parsed, &mut last_render_seq, &mut hit_test)?;
+            current_render = parsed.clone();
         }
 
         if let Some(click) = events::poll_for_click(&x11)? {
-            if let Some(target_id) = hit_test.hit(click.x, click.y) {
+            if let Some(target) = hit_test.hit_target(click.x, click.y) {
+                render_pressed_feedback(&x11, &current_render, target)?;
                 event_seq += 1;
-                let event_json = build_click_event_json(target_id, click.x, click.y, event_seq)?;
+                let event_json = build_click_event_json(target.id.as_str(), click.x, click.y, event_seq)?;
                 let next_dsl = gpt52::request_render(Some(event_json.as_str()), None, LLMMode::Generate)?;
                 let parsed = iterate_to_final(&next_dsl, Some(&event_json), None, primary.as_ref(), emoji.as_ref(), is_debug)?;
                 update_ui(&x11, &parsed, &mut last_render_seq, &mut hit_test)?;
+                current_render = parsed.clone();
             }
         }
 
@@ -166,7 +170,7 @@ fn update_ui(
 
 fn build_click_event_json(target_id: &str, x: i32, y: i32, seq: u64) -> Result<String, Box<dyn Error>> {
     let event = EventEnvelope {
-        version: "AGD/0.1".to_string(),
+        version: "AGD/0.2".to_string(),
         event_type: "event".to_string(),
         seq,
         event: ClickEvent { kind: "click".to_string(), target_id: target_id.to_string(), x, y },
@@ -185,4 +189,15 @@ fn build_hit_test(index: &mut HitTestIndex, render: &RenderEnvelope) {
             }
         }
     }
+}
+
+fn render_pressed_feedback(
+    x11: &backend::X11Backend,
+    render: &RenderEnvelope,
+    target: &HitTarget,
+) -> Result<(), Box<dyn Error>> {
+    renderer::render_frame_with_press(x11, render, target.x, target.y, target.w, target.h)?;
+    thread::sleep(Duration::from_millis(60));
+    renderer::render_frame(x11, render)?;
+    Ok(())
 }

@@ -59,7 +59,7 @@
 
 ---
 
-## 5. DSL 指令集 (AGD/0.1)
+## 5. DSL 指令集 (AGD/0.2)
 
 ### 5.1 框架约束 (Structured Outputs)
 所有输出必须符合定义的 JSON Schema，严禁自然语言污染。
@@ -70,6 +70,26 @@
 - **text**: `{"cmd": "text", "x", "y", "text", "color", "bg"}`
   - *注：若 text 在 rect 内，"bg" 必须设为 rect 颜色以实现视觉透明。*
 - **line**: `{"cmd": "line", "x1", "y1", "x2", "y2", "color", "width"}`
+- **circle**: `{"cmd": "circle", "cx", "cy", "r", "fill", "stroke", "stroke_width"}`
+- **ellipse**: `{"cmd": "ellipse", "cx", "cy", "rx", "ry", "fill", "stroke", "stroke_width"}`
+- **round_rect**: `{"cmd": "round_rect", "x", "y", "w", "h", "r", "fill", "stroke", "stroke_width"}`
+- **arc**: `{"cmd": "arc", "cx", "cy", "r", "start_angle", "end_angle", "color", "width"}`
+- **polyline**: `{"cmd": "polyline", "points": [{"x","y"}], "color", "width"}`
+- **polygon**: `{"cmd": "polygon", "points": [{"x","y"}], "fill", "stroke", "stroke_width"}`
+- **image**: `{"cmd": "image", "x", "y", "w", "h", "src_type": "path|base64", "src": "..."}`
+- **path**: `{"cmd": "path", "segments": [{"cmd":"M|L|Z","x","y"}], "fill", "stroke", "stroke_width"}`
+
+---
+
+## 5.3 未来演进方向：向 X-DSL v0.2 设计对齐
+
+参考文档：`DSL设计.txt`。后续迭代应逐步向以下目标靠拢（保持兼容演进，避免一次性重构）：
+
+- **四域模型**：World / SceneGraph / Reactor / Presenter 完整支持。
+- **强约束**：Replayable、显式状态转移、Resize/Expose 可重算几何。
+- **绘制语义**：图元具名、禁止匿名 draw；Scene 必须整体可重建。
+- **交互模型**：Input → State Mutation → Scene Dirty 的确定性流程。
+- **渲染语义**：离屏渲染 + present 上屏，window 不直接 draw。
 
 ---
 

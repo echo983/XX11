@@ -1,0 +1,321 @@
+> **《X-DSL v0.2：面向 LLM 的 X11 逻辑原生绘图与交互协议》**
+
+---
+
+# X-DSL v0.2
+
+**A Logic-Native, Replayable, Deterministic DSL for X11**
+
+---
+
+## 设计目标（明确、不妥协）
+
+X-DSL 的目标不是“更好写 X11”，而是：
+
+> **让 LLM 在不理解 X11 异步细节、不维护隐式状态、不依赖人类经验的前提下，
+> 仍然能生成：长期稳定、可重绘、可交互、可推理的图形界面行为。**
+
+为此，X-DSL **强制引入**以下三条硬约束：
+
+1. **所有长期可见图形必须可重放（Replayable）**
+2. **所有交互必须通过显式状态转移完成**
+3. **所有几何必须可在 Resize / Expose 后重新求值**
+
+---
+
+## 总体结构：四域模型（不可删减）
+
+X-DSL v0.2 被严格划分为四个逻辑域：
+
+```
+World        —— 资源与能力（Window / Surface / Style）
+SceneGraph   —— 可重放图形（Scene / Overlay / Ink）
+Reactor      —— 输入 → 状态 → 意图 → 触发
+Presenter    —— 合成 / 双缓冲 / 上屏
+```
+
+任何实现 **必须完整支持四域**，否则视为不兼容。
+
+---
+
+## 一、World：资源定义域（Resource Reality Layer）
+
+### 1. Window（唯一顶层可视对象）
+
+```yaml
+World:
+  Windows:
+    - id: main
+      size: [800, 600]
+      background: "#FFFFFF"
+```
+
+**规则：**
+
+* Window 只定义物理存在，不包含任何绘制逻辑
+* 所有绘制都必须发生在 Surface 上
+
+---
+
+### 2. Surface（绘制目标，显式）
+
+```yaml
+  Surfaces:
+    - id: front
+      type: window
+      window: main
+
+    - id: back
+      type: pixmap
+      size: match(window: main)
+```
+
+**规则（硬）：**
+
+* 所有复杂绘制必须先进入 pixmap
+* window surface 只允许 `present` 操作
+
+---
+
+### 3. Style（不可变绘图样式）
+
+```yaml
+  Styles:
+    - id: red_fill
+      foreground: "#FF0000"
+      fill: solid
+
+    - id: blue_point
+      foreground: "#0000FF"
+      line_width: 1
+```
+
+**硬约束：**
+
+* Style 在 DSL 层面 **不可变**
+* 后端可以缓存 / 复用 GC，但 **不得暴露 GC 可变性**
+
+---
+
+## 二、SceneGraph：可重放图形域（Replay Core）
+
+SceneGraph 是 X-DSL 的**核心压熵层**。
+
+### 1. 图层划分（必须）
+
+```yaml
+SceneGraph:
+  Layers:
+    - id: scene      # 长期存在，Expose 必须重放
+    - id: overlay    # 短期存在，可清空
+    - id: ink        # 瞬态，不保证重放
+```
+
+| Layer   | 是否重放 | 用途         |
+| ------- | ---- | ---------- |
+| scene   | ✅    | 稳定 UI      |
+| overlay | ✅    | 拖拽/草稿      |
+| ink     | ❌    | debug / 粒子 |
+
+---
+
+### 2. 图元（Primitive）= 对象，不是命令
+
+所有绘制必须是**具名图元**，禁止匿名 draw。
+
+```yaml
+  Primitives:
+    - id: center_square
+      layer: scene
+      type: rect
+      style: red_fill
+      layout:
+        anchor: center
+        size: [50, 50]
+```
+
+```yaml
+    - id: click_points
+      layer: scene
+      type: points
+      style: blue_point
+      geometry: dynamic   # 来自状态
+```
+
+**规则：**
+
+* Scene 图元 **必须有 id**
+* Expose / Resize 时，Scene 必须整体可重建
+
+---
+
+## 三、Layout 与 Geometry（坐标系统硬拆分）
+
+### 1. Layout（声明式、可重算）
+
+```yaml
+layout:
+  anchor: center
+  offset: [-25, -25]
+```
+
+支持：
+
+* `anchor: center | top_left | bottom_right | …`
+* 百分比
+* 约束式尺寸
+
+---
+
+### 2. Geometry（求值结果，禁止手写）
+
+```yaml
+geometry:
+  source: state.click_points
+```
+
+**硬规则：**
+
+* Scene 中 **禁止直接使用 `$event.x`**
+* 所有事件坐标必须先进入状态
+
+---
+
+## 四、Reactor：交互与状态机（Deterministic Interaction）
+
+### 1. 输入归一：IFR（Input Frame Record）
+
+Reactor **只接收 IFR**，不接收裸 XEvent。
+
+```yaml
+IFR:
+  pointer: { x, y, buttons }
+  key: { keysym, modifiers }
+  window: { width, height }
+  time: ms
+```
+
+---
+
+### 2. InteractionState（显式状态）
+
+```yaml
+State:
+  click_points: []
+```
+
+---
+
+### 3. Reactor 规则
+
+```yaml
+Reactor:
+  - on: pointer.click(button: left)
+    do:
+      - state.append:
+          path: click_points
+          value: [$IFR.pointer.x, $IFR.pointer.y]
+      - invalidate: scene
+```
+
+**硬规则：**
+
+* 所有交互必须表现为：
+  **Input → State Mutation → Scene Dirty**
+
+---
+
+## 五、Presenter：合成与上屏（必需）
+
+```yaml
+Presenter:
+  pipeline:
+    - render:
+        from: SceneGraph
+        to: back
+    - present:
+        from: back
+        to: front
+```
+
+**Expose 语义：**
+
+* 触发 `render + present`
+* 不允许直接 draw 到 window
+
+---
+
+## 六、完整示例：与你原示例等价，但结构正确
+
+### 需求
+
+> “在窗口中央画一个红色正方形，并在点击处画一个蓝色的点。”
+
+---
+
+### 完整 X-DSL v0.2
+
+```yaml
+World:
+  Windows:
+    - id: main
+      size: [800, 600]
+
+  Surfaces:
+    - id: front
+      type: window
+      window: main
+    - id: back
+      type: pixmap
+      size: match(window: main)
+
+  Styles:
+    - id: red_fill
+      foreground: "#FF0000"
+    - id: blue_point
+      foreground: "#0000FF"
+
+SceneGraph:
+  Layers:
+    - id: scene
+    - id: overlay
+    - id: ink
+
+  Primitives:
+    - id: center_square
+      layer: scene
+      type: rect
+      style: red_fill
+      layout:
+        anchor: center
+        size: [50, 50]
+
+    - id: click_points
+      layer: scene
+      type: points
+      style: blue_point
+      geometry:
+        source: state.click_points
+
+State:
+  click_points: []
+
+Reactor:
+  - on: pointer.click(button: left)
+    do:
+      - state.append:
+          path: click_points
+          value: [$IFR.pointer.x, $IFR.pointer.y]
+      - invalidate: scene
+
+Presenter:
+  pipeline:
+    - render:
+        from: SceneGraph
+        to: back
+    - present:
+        from: back
+        to: front
+```
+
+---
